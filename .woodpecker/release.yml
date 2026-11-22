@@ -1,0 +1,15 @@
+when:
+  - event: manual
+    branch: main
+
+steps:
+  - name: PUBLISH
+    image: bash
+    environment:
+      GITHUB_TOKEN:
+        from_secret: GITHUB_TOKEN
+    commands:
+      - nix develop --no-update-lock-file --command gh auth setup-git --hostname github.com
+      - nix develop --no-update-lock-file --command git config --local user.name 'Woodpecker Bot'
+      - nix develop --no-update-lock-file --command git config --local user.email 'bot@jruz.io'
+      - nix develop --no-update-lock-file --command just release publish "$RELEASE_VERSION"

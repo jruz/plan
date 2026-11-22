@@ -1,0 +1,13 @@
+when:
+  - event: push
+    branch: main
+  - event: pull_request
+
+steps:
+  - name: CHECK
+    image: bash
+    environment:
+      REVISION: ${CI_COMMIT_SHA}
+    commands:
+      - nix develop --no-update-lock-file --command just check
+      - nix develop --no-update-lock-file --command just test
