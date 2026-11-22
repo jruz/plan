@@ -1,7 +1,7 @@
 {
-  "repository": "jruz/template-rs",
+  "repository": "jruz/plan",
   "settings": {
-    "description": "Rust CLI template with Clap, sandboxed builds, Nix flake and Woodpecker releases",
+    "description": "CLI for operating on a PLAN.md file",
     "private": false,
     "allow_auto_merge": true,
     "allow_merge_commit": false,
@@ -13,10 +13,10 @@
     "has_issues": true,
     "has_projects": false,
     "has_wiki": false,
-    "is_template": true
+    "is_template": false
   },
   "topics": {
-    "names": ["cli", "nix", "rust", "template", "woodpecker"]
+    "names": ["cli", "rust", "markdown", "project-planning"]
   },
   "branch_protection": {
     "required_status_checks": {
@@ -34,8 +34,8 @@
     "enabled": false
   },
   "security": {
-    "vulnerability-alerts": true,
-    "automated-security-fixes": false
+    "vulnerability_alerts": true,
+    "automated_security_fixes": false
   },
   "labels": [
     {

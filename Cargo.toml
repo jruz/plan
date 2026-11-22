@@ -1,5 +1,5 @@
 [package]
-name = "template-rs"
+name = "plan"
 version = "0.0.3"
 edition = "2024"
 

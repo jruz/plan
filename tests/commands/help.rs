@@ -5,7 +5,7 @@ fn describes_template() {
     let output = run(&["--help"]);
     assert!(output.status.success());
     let help = stdout(&output);
-    assert!(help.contains("template-rs"));
+    assert!(help.contains("plan"));
     assert!(help.contains("--help"));
     assert!(help.contains("--version"));
     assert!(help.contains("version  Show version and build metadata"));

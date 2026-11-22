@@ -1,7 +1,7 @@
 use std::process::{Command, Output};
 
 pub fn run(arguments: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_template-rs"))
+    Command::new(env!("CARGO_BIN_EXE_plan"))
         .args(arguments)
         .output()
         .expect("run CLI")

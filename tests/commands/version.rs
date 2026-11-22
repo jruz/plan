@@ -7,7 +7,8 @@ fn includes_build_metadata() {
     assert_eq!(stderr(&output), "");
     let version = stdout(&output);
     assert!(version.starts_with(concat!(
-        "template-rs \nversion: ",
+        env!("CARGO_PKG_NAME"),
+        " \nversion: ",
         env!("CARGO_PKG_VERSION")
     )));
     assert!(version.contains(concat!("revision: ", env!("REVISION"))));
