@@ -37,6 +37,20 @@ plan prune
 
 To restore, copy the saved snapshot over `PLAN.md`. If the backup cannot be saved, the CLI leaves the plan untouched.
 
+## Insert a phase
+
+```sh
+plan insert 2 "New phase" --dry-run
+plan insert 2 "New phase"
+plan insert 2 --from phase.md
+```
+
+Positions start at 1. Use the position after the last phase to append. Later headings are renumbered, but references in prose stay unchanged.
+
+Pass a title to generate a starter phase. Use `--from` instead to import a Markdown file containing a single `## Phase N: <title>` section. The source file is left untouched and the imported heading gets its number from the destination position.
+
+`--dry-run` prints the proposed plan without writing a backup. Applying an insertion saves the original in `.plan/` before replacing `PLAN.md`.
+
 ## Licence
 
 Licensed under the [EUPL 1.2](LICENSE).

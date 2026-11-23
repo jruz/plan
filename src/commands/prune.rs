@@ -18,30 +18,16 @@ pub enum Error {
     },
 }
 
-pub enum Mode {
-    Apply,
-    Preview,
-}
-
-pub enum Outcome {
-    NoChange,
-    Preview(String),
-    Saved(path::PathBuf),
-}
-
 #[tracing::instrument(skip(file, mode))]
-pub async fn run(file: &path::Path, mode: Mode) -> Result<Outcome, Error> {
+pub async fn run(
+    file: &path::Path,
+    mode: replace_file::Mode,
+) -> Result<replace_file::Outcome, Error> {
     let target = tokio::fs::canonicalize(file).await?;
     let source = tokio::fs::read_to_string(&target).await?;
     let Some(updated) = plan::prune(&source)? else {
-        return Ok(Outcome::NoChange);
+        return Ok(replace_file::Outcome::NoChange);
     };
-    let outcome = match mode {
-        Mode::Apply => {
-            let backup = replace_file::run(target, source, updated).await?;
-            Outcome::Saved(backup)
-        }
-        Mode::Preview => Outcome::Preview(updated),
-    };
+    let outcome = replace_file::finish(target, source, updated, mode).await?;
     Ok(outcome)
 }

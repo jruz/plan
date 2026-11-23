@@ -4,41 +4,51 @@ use pulldown_cmark::HeadingLevel;
 
 use super::{frontmatter, markdown};
 
-const PHASE_PREFIX: &str = "## Phase ";
+pub(in crate::core) const PHASE_PREFIX: &str = "## Phase ";
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(" invalid phase source range")]
     EditRange,
+    #[error(" invalid phase fragment at line {0}")]
+    Fragment(#[source] Box<Self>),
+    #[error(" expected exactly one phase in the import file")]
+    FragmentCount,
+    #[error(" import file must start with `## Phase N: <title>`")]
+    FragmentHeading,
     #[error(transparent)]
     Markdown(#[from] markdown::Error),
+    #[error(" insertion position {position} is out of range (expected 1 through {last})")]
+    Position { last: usize, position: usize },
     #[error("{line}: {message}")]
     Structure { line: usize, message: String },
+    #[error(" phase title must be a single non-empty line")]
+    Title,
 }
 
-struct Violation {
+pub(in crate::core) struct Violation {
     message: String,
     offset: usize,
 }
 
-struct Sections<'blocks, 'source> {
-    end: usize,
-    remaining: &'blocks [markdown::Block<'source>],
+pub(in crate::core) struct Sections<'blocks, 'source> {
+    pub end: usize,
+    pub remaining: &'blocks [markdown::Block<'source>],
 }
 
-struct Plan {
-    blocker: usize,
-    phases: Vec<Phase>,
+pub(in crate::core) struct Plan {
+    pub blocker: usize,
+    pub phases: Vec<Phase>,
 }
 
-struct Phase {
-    number: ops::Range<usize>,
-    start: usize,
-    status: Status,
+pub(in crate::core) struct Phase {
+    pub number: ops::Range<usize>,
+    pub start: usize,
+    pub status: Status,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Status {
+pub(in crate::core) enum Status {
     Complete,
     Open,
 }
@@ -84,7 +94,7 @@ pub fn prune(source: &str) -> Result<Option<String>, Error> {
     Ok(replacement)
 }
 
-fn line_start(source: &str, offset: usize) -> Result<usize, Error> {
+pub(in crate::core) fn line_start(source: &str, offset: usize) -> Result<usize, Error> {
     let prefix = source.get(..offset).ok_or(Error::EditRange)?;
     match prefix.rfind('\n') {
         Some(newline) => Ok(newline + 1),
@@ -92,13 +102,17 @@ fn line_start(source: &str, offset: usize) -> Result<usize, Error> {
     }
 }
 
-fn append(output: &mut String, source: &str, range: ops::Range<usize>) -> Result<(), Error> {
+pub(in crate::core) fn append(
+    output: &mut String,
+    source: &str,
+    range: ops::Range<usize>,
+) -> Result<(), Error> {
     let text = source.get(range).ok_or(Error::EditRange)?;
     output.push_str(text);
     Ok(())
 }
 
-fn parse(source: &str) -> Result<Plan, Error> {
+pub(in crate::core) fn parse(source: &str) -> Result<Plan, Error> {
     let body = match frontmatter::body(source) {
         Ok(offset) => offset,
         Err(issue) => {
@@ -123,7 +137,7 @@ fn parse(source: &str) -> Result<Plan, Error> {
     }
 }
 
-fn at_line(source: &str, issue: Violation) -> Error {
+pub(in crate::core) fn at_line(source: &str, issue: Violation) -> Error {
     let line = source
         .bytes()
         .take(issue.offset)
@@ -171,7 +185,7 @@ fn section(
     Ok(())
 }
 
-fn separator(sections: &mut Sections<'_, '_>) -> Result<(), Violation> {
+pub(in crate::core) fn separator(sections: &mut Sections<'_, '_>) -> Result<(), Violation> {
     take(sections, "expected `---` section separator", |block| {
         matches!(block.kind, markdown::Kind::Rule) && block.text.trim_end() == "---"
     })?;
@@ -250,6 +264,7 @@ fn validate(sections: &mut Sections<'_, '_>) -> Result<Plan, Violation> {
         }
         let number = phases.len() + 1;
         let phase = phase(sections, number)?;
+        separator(sections)?;
         phases.push(phase);
     }
     let blocker = take(sections, "expected `## Blocker`", |block| {
@@ -272,7 +287,10 @@ fn validate(sections: &mut Sections<'_, '_>) -> Result<Plan, Violation> {
     })
 }
 
-fn phase(sections: &mut Sections<'_, '_>, number: usize) -> Result<Phase, Violation> {
+pub(in crate::core) fn phase(
+    sections: &mut Sections<'_, '_>,
+    number: usize,
+) -> Result<Phase, Violation> {
     let digits = number.to_string();
     let prefix = format!("{PHASE_PREFIX}{digits}: ");
     let message = format!("expected `{PHASE_PREFIX}{digits}: <title>` or `## Blocker`");
@@ -306,7 +324,6 @@ fn phase(sections: &mut Sections<'_, '_>, number: usize) -> Result<Phase, Violat
     )?;
     let todos = checklist(sections, "### Todolist")?;
     let criteria = checklist(sections, "### Acceptance Criteria")?;
-    separator(sections)?;
     let status = match (todos, criteria) {
         (Status::Complete, Status::Complete) => Status::Complete,
         (Status::Open, _) | (_, Status::Open) => Status::Open,

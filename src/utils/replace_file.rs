@@ -16,8 +16,35 @@ pub enum Error {
     Persist(#[from] tempfile::PersistError),
 }
 
-#[tracing::instrument(skip(file, original, contents))]
-pub async fn run(
+pub enum Mode {
+    Apply,
+    Preview,
+}
+
+pub enum Outcome {
+    NoChange,
+    Preview(String),
+    Saved(path::PathBuf),
+}
+
+#[tracing::instrument(skip(file, original, updated, mode))]
+pub async fn finish(
+    file: path::PathBuf,
+    original: String,
+    updated: String,
+    mode: Mode,
+) -> Result<Outcome, Error> {
+    let outcome = match mode {
+        Mode::Apply => {
+            let backup = run(file, original, updated).await?;
+            Outcome::Saved(backup)
+        }
+        Mode::Preview => Outcome::Preview(updated),
+    };
+    Ok(outcome)
+}
+
+async fn run(
     file: path::PathBuf,
     original: String,
     contents: String,
