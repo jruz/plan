@@ -51,6 +51,17 @@ Pass a title to generate a starter phase. Use `--from` instead to import a Markd
 
 `--dry-run` prints the proposed plan without writing a backup. Applying an insertion saves the original in `.plan/` before replacing `PLAN.md`.
 
+## Move a phase
+
+```sh
+plan move 1 3 --dry-run
+plan move 1 3
+```
+
+Both positions refer to existing phases and start at 1. `plan move 1 3` places the first phase at position 3 and shifts the intervening phases up. Only the affected heading numbers change; phase contents and references in prose stay intact.
+
+`--dry-run` prints the proposed plan without writing it. Applying a move saves the original in `.plan/` before replacing `PLAN.md`. Moving a phase to its current position produces no output and creates no backup.
+
 ## Licence
 
 Licensed under the [EUPL 1.2](LICENSE).

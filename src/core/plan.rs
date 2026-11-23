@@ -1,4 +1,4 @@
-use std::ops;
+use std::{iter, num, ops};
 
 use pulldown_cmark::HeadingLevel;
 
@@ -18,6 +18,12 @@ pub enum Error {
     FragmentHeading,
     #[error(transparent)]
     Markdown(#[from] markdown::Error),
+    #[error(" {endpoint} position {position} is out of range (plan has {count} phases)")]
+    MovePosition {
+        endpoint: &'static str,
+        position: usize,
+        count: usize,
+    },
     #[error(" insertion position {position} is out of range (expected 1 through {last})")]
     Position { last: usize, position: usize },
     #[error("{line}: {message}")]
@@ -56,6 +62,69 @@ pub(in crate::core) enum Status {
 pub fn check(source: &str) -> Result<(), Error> {
     parse(source)?;
     Ok(())
+}
+
+pub fn move_phase(
+    source: &str,
+    from: num::NonZeroUsize,
+    to: num::NonZeroUsize,
+) -> Result<Option<String>, Error> {
+    let plan = parse(source)?;
+    let count = plan.phases.len();
+    let from = move_index(from, count, "source")?;
+    let to = move_index(to, count, "destination")?;
+    if from == to {
+        return Ok(None);
+    }
+
+    let ends = plan.phases.iter().skip(1).map(|phase| phase.start);
+    let blocker = iter::once(plan.blocker);
+    let ends = ends.chain(blocker);
+    let mut spans: Vec<_> = plan.phases.iter().zip(ends).collect();
+    let first = from.min(to);
+    let last = from.max(to);
+    let affected = spans.get_mut(first..=last).ok_or(Error::EditRange)?;
+    let (initial, _) = affected.first().ok_or(Error::EditRange)?;
+    let (_, final_end) = affected.last().ok_or(Error::EditRange)?;
+    let prefix_end = line_start(source, initial.start)?;
+    let suffix_start = line_start(source, *final_end)?;
+    if from < to {
+        affected.rotate_left(1);
+    } else {
+        affected.rotate_right(1);
+    }
+
+    let length = source.len();
+    let mut updated = String::with_capacity(length);
+    append(&mut updated, source, 0..prefix_end)?;
+    for (index, (phase, end)) in affected.iter().enumerate() {
+        let start = line_start(source, phase.start)?;
+        let end = line_start(source, *end)?;
+        append(&mut updated, source, start..phase.number.start)?;
+        let digits = (first + index + 1).to_string();
+        updated.push_str(&digits);
+        append(&mut updated, source, phase.number.end..end)?;
+    }
+    append(&mut updated, source, suffix_start..length)?;
+    check(&updated)?;
+    let replacement = Some(updated);
+    Ok(replacement)
+}
+
+fn move_index(
+    position: num::NonZeroUsize,
+    count: usize,
+    endpoint: &'static str,
+) -> Result<usize, Error> {
+    let position = position.get();
+    if position > count {
+        return Err(Error::MovePosition {
+            endpoint,
+            position,
+            count,
+        });
+    }
+    Ok(position - 1)
 }
 
 pub fn prune(source: &str) -> Result<Option<String>, Error> {

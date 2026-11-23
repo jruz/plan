@@ -5,7 +5,7 @@ mod utils;
 use std::{num, path, process::ExitCode};
 
 use clap::Parser as _;
-use commands::{check, insert, prune, version};
+use commands::{check, insert, move_phase, prune, version};
 use utils::replace_file;
 
 const PLAN_FILE: &str = "PLAN.md";
@@ -31,6 +31,15 @@ enum Command {
             help = "Import one phase from a Markdown file"
         )]
         from: Option<path::PathBuf>,
+        #[arg(long, help = "Print the proposed plan without writing it")]
+        dry_run: bool,
+    },
+    #[command(about = "Move a phase to its final position and renumber affected phases")]
+    Move {
+        #[arg(help = "Current phase position, starting at 1")]
+        from: num::NonZeroUsize,
+        #[arg(help = "Final phase position, starting at 1")]
+        to: num::NonZeroUsize,
         #[arg(long, help = "Print the proposed plan without writing it")]
         dry_run: bool,
     },
@@ -66,6 +75,11 @@ async fn main() -> ExitCode {
             let title = title.as_deref();
             let from = from.as_deref();
             let result = insert::run(file, position, title, from, mode).await;
+            edit_result(result)
+        }
+        Some(Command::Move { from, to, dry_run }) => {
+            let mode = edit_mode(dry_run);
+            let result = move_phase::run(file, from, to, mode).await;
             edit_result(result)
         }
         Some(Command::Prune { dry_run }) => {
