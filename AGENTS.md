@@ -28,14 +28,22 @@
 
 - Use `justfile` and `.just/` recipes for development tasks.
 - Run Cargo commands through `sandbox`.
-- Run `just check`, `just test`, and `slop-detector` after changes.
+- `just check` validates code after changes.
+- `just test` runs tests after changes.
+- `slop-detector` checks for anti-patterns after changes.
+
+## CLI safety
+
+- Provide a `--dry-run` flag on every destructive command.
+- Show what would change without applying any changes in dry-run mode.
+- Back up `PLAN.md` before any command replaces it.
 
 ## Configuration tools
 
-- Run `just tools::check` after configuration changes.
-- Run `just tools::fix` to format configuration.
-- `.tools/` provides its own Nix shell through `.just/tools.justfile`.
-- Keep these checks separate from `just check` and CI.
+- `just tools::check` validates configuration changes.
+- `just tools::fix` formats configuration.
+- `.tools/` provides a separate Nix shell for local configuration checks.
+- `just check` and CI exclude these configuration checks.
 
 ## Release
 

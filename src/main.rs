@@ -5,7 +5,7 @@ mod utils;
 use std::{path, process::ExitCode};
 
 use clap::Parser as _;
-use commands::{check, version};
+use commands::{check, prune, version};
 
 const PLAN_FILE: &str = "PLAN.md";
 
@@ -20,6 +20,11 @@ struct Arguments {
 enum Command {
     #[command(about = "Validate PLAN.md without changing it")]
     Check,
+    #[command(about = "Remove completed phases and renumber the rest")]
+    Prune {
+        #[arg(long, help = "Print the proposed plan without writing it")]
+        dry_run: bool,
+    },
     #[command(about = "Show version and build metadata")]
     Version,
 }
@@ -35,6 +40,28 @@ async fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Some(Command::Prune { dry_run }) => {
+            let mode = if dry_run {
+                prune::Mode::Preview
+            } else {
+                prune::Mode::Apply
+            };
+            match prune::run(file, mode).await {
+                Ok(prune::Outcome::NoChange) => ExitCode::SUCCESS,
+                Ok(prune::Outcome::Preview(updated)) => {
+                    print!("{updated}");
+                    ExitCode::SUCCESS
+                }
+                Ok(prune::Outcome::Saved(path)) => {
+                    println!("Backup: {}", path.display());
+                    ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    eprintln!("{PLAN_FILE}:{error}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         Some(Command::Version) => {
             let output = version::run();
             print!("{}", output.text);

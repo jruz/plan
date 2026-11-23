@@ -1,9 +1,15 @@
+use std::ops;
+
 use pulldown_cmark::HeadingLevel;
 
 use super::{frontmatter, markdown};
 
+const PHASE_PREFIX: &str = "## Phase ";
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error(" invalid phase source range")]
+    EditRange,
     #[error(transparent)]
     Markdown(#[from] markdown::Error),
     #[error("{line}: {message}")]
@@ -20,7 +26,79 @@ struct Sections<'blocks, 'source> {
     remaining: &'blocks [markdown::Block<'source>],
 }
 
+struct Plan {
+    blocker: usize,
+    phases: Vec<Phase>,
+}
+
+struct Phase {
+    number: ops::Range<usize>,
+    start: usize,
+    status: Status,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Status {
+    Complete,
+    Open,
+}
+
 pub fn check(source: &str) -> Result<(), Error> {
+    parse(source)?;
+    Ok(())
+}
+
+pub fn prune(source: &str) -> Result<Option<String>, Error> {
+    let plan = parse(source)?;
+    if !plan
+        .phases
+        .iter()
+        .any(|phase| phase.status == Status::Complete)
+    {
+        return Ok(None);
+    }
+    let length = source.len();
+    let mut updated = String::with_capacity(length);
+    let mut cursor = 0;
+    let mut number: usize = 1;
+    let mut phases = plan.phases.iter().peekable();
+    while let Some(phase) = phases.next() {
+        let start = line_start(source, phase.start)?;
+        append(&mut updated, source, cursor..start)?;
+        let end = match phases.peek() {
+            Some(next) => line_start(source, next.start)?,
+            None => line_start(source, plan.blocker)?,
+        };
+        if phase.status == Status::Open {
+            append(&mut updated, source, start..phase.number.start)?;
+            let digits = number.to_string();
+            updated.push_str(&digits);
+            append(&mut updated, source, phase.number.end..end)?;
+            number += 1;
+        }
+        cursor = end;
+    }
+    append(&mut updated, source, cursor..length)?;
+    check(&updated)?;
+    let replacement = Some(updated);
+    Ok(replacement)
+}
+
+fn line_start(source: &str, offset: usize) -> Result<usize, Error> {
+    let prefix = source.get(..offset).ok_or(Error::EditRange)?;
+    match prefix.rfind('\n') {
+        Some(newline) => Ok(newline + 1),
+        None => Ok(0),
+    }
+}
+
+fn append(output: &mut String, source: &str, range: ops::Range<usize>) -> Result<(), Error> {
+    let text = source.get(range).ok_or(Error::EditRange)?;
+    output.push_str(text);
+    Ok(())
+}
+
+fn parse(source: &str) -> Result<Plan, Error> {
     let body = match frontmatter::body(source) {
         Ok(offset) => offset,
         Err(issue) => {
@@ -37,7 +115,7 @@ pub fn check(source: &str) -> Result<(), Error> {
         end: source.len(),
     };
     match validate(&mut sections) {
-        Ok(()) => Ok(()),
+        Ok(plan) => Ok(plan),
         Err(issue) => {
             let diagnostic = at_line(source, issue);
             Err(diagnostic)
@@ -116,7 +194,7 @@ fn optional_list(
     Ok(())
 }
 
-fn checklist(sections: &mut Sections<'_, '_>, name: &str) -> Result<(), Violation> {
+fn checklist(sections: &mut Sections<'_, '_>, name: &str) -> Result<Status, Violation> {
     section(sections, HeadingLevel::H3, name)?;
     let message = "expected a checklist with `- [ ]` or `- [x]` items";
     let block = take(sections, message, |block| {
@@ -125,10 +203,14 @@ fn checklist(sections: &mut Sections<'_, '_>, name: &str) -> Result<(), Violatio
     let markdown::Kind::List(items) = &block.kind else {
         return invalid(block.offset, message);
     };
+    let mut status = Status::Complete;
     for item in items {
         let prefix = match item.checked {
             Some(true) => "- [x] ",
-            Some(false) => "- [ ] ",
+            Some(false) => {
+                status = Status::Open;
+                "- [ ] "
+            }
             None => return invalid(item.offset, message),
         };
         if item
@@ -140,10 +222,10 @@ fn checklist(sections: &mut Sections<'_, '_>, name: &str) -> Result<(), Violatio
             return invalid(item.offset, message);
         }
     }
-    Ok(())
+    Ok(status)
 }
 
-fn validate(sections: &mut Sections<'_, '_>) -> Result<(), Violation> {
+fn validate(sections: &mut Sections<'_, '_>) -> Result<Plan, Violation> {
     take(sections, "expected `# Plan: <title>`", |block| {
         matches!(block.kind, markdown::Kind::Heading(HeadingLevel::H1))
             && block
@@ -161,15 +243,18 @@ fn validate(sections: &mut Sections<'_, '_>) -> Result<(), Violation> {
     })?;
     separator(sections)?;
 
-    let mut number = 1;
+    let mut phases = Vec::new();
     while let Some(block) = sections.remaining.first() {
         if heading(block, HeadingLevel::H2, "## Blocker") {
             break;
         }
-        phase(sections, number)?;
-        number += 1;
+        let number = phases.len() + 1;
+        let phase = phase(sections, number)?;
+        phases.push(phase);
     }
-    section(sections, HeadingLevel::H2, "## Blocker")?;
+    let blocker = take(sections, "expected `## Blocker`", |block| {
+        heading(block, HeadingLevel::H2, "## Blocker")
+    })?;
     if let Some(block) = sections.remaining.iter().find(|block| {
         matches!(
             block.kind,
@@ -181,14 +266,18 @@ fn validate(sections: &mut Sections<'_, '_>) -> Result<(), Violation> {
             "`## Blocker` must be the last top-level section",
         );
     }
-    Ok(())
+    Ok(Plan {
+        blocker: blocker.offset,
+        phases,
+    })
 }
 
-fn phase(sections: &mut Sections<'_, '_>, number: usize) -> Result<(), Violation> {
-    let prefix = format!("## Phase {number}: ");
-    let message = format!("expected `## Phase {number}: <title>` or `## Blocker`");
+fn phase(sections: &mut Sections<'_, '_>, number: usize) -> Result<Phase, Violation> {
+    let digits = number.to_string();
+    let prefix = format!("{PHASE_PREFIX}{digits}: ");
+    let message = format!("expected `{PHASE_PREFIX}{digits}: <title>` or `## Blocker`");
     let prefix = prefix.as_str();
-    take(sections, &message, |block| {
+    let heading = take(sections, &message, |block| {
         matches!(block.kind, markdown::Kind::Heading(HeadingLevel::H2))
             && block
                 .text
@@ -215,7 +304,19 @@ fn phase(sections: &mut Sections<'_, '_>, number: usize) -> Result<(), Violation
                 .is_some_and(|path| !path.trim().is_empty() && !path.contains(['`', '\n']))
         },
     )?;
-    checklist(sections, "### Todolist")?;
-    checklist(sections, "### Acceptance Criteria")?;
-    separator(sections)
+    let todos = checklist(sections, "### Todolist")?;
+    let criteria = checklist(sections, "### Acceptance Criteria")?;
+    separator(sections)?;
+    let status = match (todos, criteria) {
+        (Status::Complete, Status::Complete) => Status::Complete,
+        (Status::Open, _) | (_, Status::Open) => Status::Open,
+    };
+    let start = heading.offset;
+    let digits_start = start + PHASE_PREFIX.len();
+    let digits_end = digits_start + digits.len();
+    Ok(Phase {
+        number: digits_start..digits_end,
+        start,
+        status,
+    })
 }
